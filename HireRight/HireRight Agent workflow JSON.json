@@ -1,0 +1,290 @@
+{
+  "name": "HireRight Agent workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/recruit-ai/screen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3a00c529-307b-432a-9025-9f77ab1b8c08",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1232,
+        240
+      ],
+      "webhookId": "85b44bc2-0fea-415d-bd43-d13d7cc2c29f"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "id": "617bd013-051c-492a-9a2c-12d249245b4d",
+      "name": "Extract Resume Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1008,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobDescription = $('Webhook Trigger').first().json.body.job_description;\nconst resumeText = $input.first().json.text;\n\nif (!jobDescription || typeof jobDescription !== 'string' || jobDescription.length < 100) {\n  return [{ json: { valid: false, error: 'Invalid job_description', message: 'job_description must be a string with at least 100 characters' } }];\n}\n\nif (!resumeText || typeof resumeText !== 'string' || resumeText.length < 100) {\n  return [{ json: { valid: false, error: 'Invalid resume', message: 'Resume text must contain at least 100 characters' } }];\n}\n\nreturn [{ json: { valid: true, job_description: jobDescription, resume_text: resumeText } }];"
+      },
+      "id": "407504aa-4725-4c20-b4ba-84996fba114b",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "96b9ad0e-a81b-4b3c-a0a0-7bf23fa6b3df",
+      "name": "Check Validation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -560,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "chatInput",
+              "type": "string",
+              "value": "=Job Description:\n{{ $json.job_description }}\n\nResume:\n{{ $json.resume_text }}\n\nEvaluate the candidate and return JSON with the following keys:\n\n- candidate_name (full name as written in the resume)\n- email (email address if present, otherwise null)\n- phone (phone number if present, otherwise null)\n- score (integer 0–100)\n- summary (short text summary of fit)\n- recommendation (Interview | Hold | Reject)\n- reasoning (brief explanation)\n- email_draft (object or null)\n\nEmail draft rules:\n- If recommendation is \"Interview\":\n  - email_draft.subject: Professional interview invitation subject\n  - email_draft.body: Friendly, professional email body\n  - Include the placeholder {interview_date} exactly as written\n- If recommendation is \"Reject\":\n  - email_draft.subject: Polite rejection subject\n  - email_draft.body: Respectful rejection email\n- If recommendation is \"Hold\":\n  - email_draft must be null\n\nImportant rules:\n- Make sure you format text properly in reponse. Resume file might have improper text format which might cause issues down the line.\n- Extract contact details ONLY from the resume text\n- Do not guess or fabricate missing values\n- Use null if email or phone is not found\n- Do not include any markdown\n- Return only valid JSON",
+              "id": "00372a4b-5a54-4c35-93bf-952ef109cb72"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "083e98ed-8367-41cb-afe9-b6e3f7735f3d",
+      "name": "Prepare AI Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -336,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"candidate_name\": { \"type\": \"string\" },\n    \"email\": { \"type\": [\"string\", \"null\"] },\n    \"phone\": { \"type\": [\"string\", \"null\"] },\n    \"score\": { \"type\": \"number\" },\n    \"summary\": { \"type\": \"string\" },\n    \"recommendation\": { \"type\": \"string\" },\n    \"reasoning\": { \"type\": \"string\" },\n    \"email_draft\": {\n      \"anyOf\": [\n        { \"type\": \"null\" },\n        {\n          \"type\": \"object\",\n          \"properties\": {\n            \"subject\": { \"type\": \"string\" },\n            \"body\": { \"type\": \"string\" }\n          },\n          \"required\": [\"subject\", \"body\"]\n        }\n      ]\n    }\n  },\n  \"required\": [\"candidate_name\", \"score\", \"recommendation\"]\n}\n"
+      },
+      "id": "3a399f58-b804-46c1-8c01-13ec1a53bd0b",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an AI recruitment assistant. Return ONLY valid JSON matching the schema. Do not fabricate personal data."
+        }
+      },
+      "id": "dca23372-03ae-4bed-b42c-6a521c7f9303",
+      "name": "AI Resume Evaluator",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -112,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "model": "nvidia/nemotron-3-nano-30b-a3b:free",
+        "options": {}
+      },
+      "id": "0c034739-5e2c-401e-9327-4998b6b8cc25",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        368
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "id": "N3nI0i8HRaA9iaGj",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.output }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "47dca7f3-dab0-4b60-856f-6c7f27093f48",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        240,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.error, \"message\": $json.message } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "1d6e4da8-68e8-4982-ba26-0f8e6a1ef72d",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -336,
+        336
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Resume Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Resume Text": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Check Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Validation": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Resume Evaluator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Resume Evaluator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Resume Evaluator",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Resume Evaluator": {
+      "main": [
+        [
+          {
+            "node": "Return Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "60bac50e-53d7-4efb-886b-846e5347ff75",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "32e092bb5c74b72afaf0e270b6a8c57594cec3b94bdda49577b84f2130183856"
+  },
+  "id": "0FP6EcHY2yXhu6Uy",
+  "tags": []
+}
